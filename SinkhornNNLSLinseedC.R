@@ -482,28 +482,6 @@ SinkhornNNLSLinseed <- R6Class(
 
       grid.arrange(pltX,pltOmega,nrow=1)
     },
-
-    logError = function(cnt,t,marks_,coef_=1) {
-      V__ <- self$S %*% self$V_row %*% t(self$R)
-      error_ <- norm(V__ - self$Omega %*% diag(self$D_w[,1]) %*% self$X,"F")^2
-      orig_deconv_error <- norm(self$V_row - t(self$S) %*% self$Omega %*% diag(self$D_w[,1]) %*% self$X %*% self$R,"F")^2
-      lambda_error <- coef_ * self$coef_hinge_H * self$hinge(self$X %*% self$R)
-      beta_error <- coef_ * self$coef_hinge_W * self$hinge(t(self$S) %*% self$Omega) 
-      D_h_error <- self$coef_pos_D_h * norm(t(self$X)%*%self$D_h-self$A,"F")^2
-      D_w_error <- self$coef_pos_D_w * norm(self$Omega%*%self$D_w-self$B,"F")^2
-      new_error <- error_ + lambda_error + beta_error + D_h_error + D_w_error
-      
-      self$errors_statistics <- rbind(self$errors_statistics,c(cnt,t,marks_,
-                                                           error_,
-                                                           lambda_error,
-                                                           D_h_error,
-                                                           beta_error,
-                                                           D_w_error,
-                                                           new_error,
-                                                           self$count_neg_props,
-                                                           self$count_neg_basis,
-                                                           orig_deconv_error))
-    },
     
     runOptimization = function(debug=FALSE, idx = NULL, 
         repeats_=5, runInitOptim = T) {
@@ -551,7 +529,7 @@ SinkhornNNLSLinseed <- R6Class(
       self$Omega <- res_$new_Omega
       self$D_w <- res_$new_D_w
       self$D_h <- res_$new_D_h
-      self$errors_statistics <- res_$errors_statistics
+      self$errors_statistics <- res_$errors
   
       colnames(self$errors_statistics) <- c("deconv_error","lamdba_error","beta_error",
                                             "D_h_error","D_w_error","total_error","orig_deconv_error")
