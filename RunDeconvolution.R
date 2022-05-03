@@ -107,7 +107,7 @@ if (!is.null(obj[['data']])) {
 }
   
 
-  tmp_snkhrn$selectTopGenes(obj[['top_genes']])
+  tmp_snkhrn$selectTopGenes(min(obj[['top_genes']],nrow(tmp_snkhrn$filtered_data)))
 
   if (!is.null(obj[['svd_k']])) {
     k <- max(obj[['cell_types']],obj[['svd_k']])
