@@ -75,6 +75,12 @@ if (!is.null(obj[['global_iterations']])) {
   global_iterations <- 5000
 }
 
+if (!is.null(obj[['scale_iterations']])) {
+  scale_iterations <- as.numeric(obj[['scale_iterations']])
+} else {
+  scale_iterations <- 20
+}
+
 cat(paste("\n",analysis_name,":",
                   "\nNumber of iterations:",global_iterations,
                   "\nCell types:",obj[['cell_types']],
@@ -116,7 +122,7 @@ if (!is.null(obj[['data']])) {
   }
 
   print("Scaling dataset")
-  tmp_snkhrn$scaleDataset(iterations = 20)
+  tmp_snkhrn$scaleDataset(iterations = scale_iterations)
   
   if (!is.null(obj[['projections']])) {
     print("Loading projections")
