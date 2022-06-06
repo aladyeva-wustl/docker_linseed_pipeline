@@ -6,13 +6,14 @@ using namespace std;
 
 // [[Rcpp::depends(RcppArmadillo)]]
 
-//vec nnls_col(mat A, colvec b, int max_iter = 500, double tol = 1e-6)
+uword getNegative(arma::mat x) {
+  uvec q1 = find(x < 0);
+  vec B = conv_to<vec>::from(q1);
+  return B.n_elem;
+}
+
 arma::vec nnls_col(const mat &A, const subview_col<double> &b, int max_iter = 500, double tol = 1e-6, bool verbose = false)
 {
-  /*
-   * Description: sequential Coordinate-wise algorithm for non-negative least square regression A x = b, s.t. x >= 0
-   * 	Reference: http://cmp.felk.cvut.cz/ftp/articles/franc/Franc-TR-2005-06.pdf 
-   */
   
   vec mu = -A.t() * b;
   mat H = A.t() * A;
@@ -211,6 +212,10 @@ field<mat> derivative_stage1(const arma::mat& X,
     
     new_D_h = new_D_w * (N/M);
     
+    uword neg_props = getNegative(new_X * R);
+    uword neg_basis = getNegative(S.t() * new_Omega);
+    double sum_ = 0;
+    
     List err_ = calcErrors(new_X,new_Omega,new_D_w, new_D_h,
                            V_row, R, S, coef_, coef_der_X,
                            coef_der_Omega, coef_hinge_H,
@@ -222,7 +227,10 @@ field<mat> derivative_stage1(const arma::mat& X,
                                    err_["D_h_error"],
                                    err_["D_w_error"],
                                    err_["new_error"],
-                                   err_["orig_deconv_error"]};
+                                   err_["orig_deconv_error"],
+                                   neg_props,
+                                   neg_basis,
+                                   sum_};
   }
   
   field<mat> ret_(5,1);
@@ -307,6 +315,10 @@ field<mat> derivative_stage2(const arma::mat& X,
     
     new_D_h = new_D_w * (N/M);
     
+    uword neg_props = getNegative(new_X * R);
+    uword neg_basis = getNegative(S.t() * new_Omega);
+    double sum_ = 0;
+    
     List err_ = calcErrors(new_X,new_Omega,new_D_w, new_D_h,
                            V_row, R, S, 1, coef_der_X,
                            coef_der_Omega, coef_hinge_H,
@@ -318,7 +330,10 @@ field<mat> derivative_stage2(const arma::mat& X,
                                             err_["D_h_error"],
                                                 err_["D_w_error"],
                                                     err_["new_error"],
-                                                        err_["orig_deconv_error"]};
+                                                        err_["orig_deconv_error"],
+                                                            neg_props,
+                                                            neg_basis,
+                                                            sum_};
     
   }
   
@@ -361,10 +376,10 @@ List run_optimization( const arma::mat& X,
   mat new_D_h = D_w * (N/M);
   
   if (startWithInit) {
-    errors_statistics.set_size(2*global_iterations+1,7);
+    errors_statistics.set_size(2*global_iterations+1,10);
     errors_statistics.fill(fill::zeros);
   } else {
-    errors_statistics.set_size(global_iterations+1,7);
+    errors_statistics.set_size(global_iterations+1,10);
     errors_statistics.fill(fill::zeros);
   }
   

@@ -362,8 +362,8 @@ SinkhornNNLSLinseed <- R6Class(
   idxTableOmega <- idxTableOmega[order(idxTableOmega[,(self$cell_types+1)],decreasing=F),]
   idxTableX <- idxTableX[order(idxTableX[,(self$cell_types+1)],decreasing=F),]
   
-  return(list(idsTableOmega = idxTableOmega[1:top,],
-              idsTableX = idxTableX[1:top,]))
+  return(list(idsTableOmega = idxTableOmega[1:top,,drop=F],
+              idsTableX = idxTableX[1:top,,drop=F]))
 },
 
     readInitValues = function(file) {
