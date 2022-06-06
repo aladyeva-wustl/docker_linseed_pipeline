@@ -6,11 +6,16 @@ using namespace std;
 
 // [[Rcpp::depends(RcppArmadillo)]]
 
-uword getNegative(arma::mat x) {
-  uvec q1 = find(x < 0);
+uword getNegative(arma::mat X) {
+  uvec q1 = find(X < 0);
   vec B = conv_to<vec>::from(q1);
   return B.n_elem;
 }
+// [[Rcpp::export]]
+double getSum(arma::mat X, arma::mat M) {
+  return accu(X) / M.n_rows;
+}
+
 
 arma::vec nnls_col(const mat &A, const subview_col<double> &b, int max_iter = 500, double tol = 1e-6, bool verbose = false)
 {
@@ -214,7 +219,7 @@ field<mat> derivative_stage1(const arma::mat& X,
     
     uword neg_props = getNegative(new_X * R);
     uword neg_basis = getNegative(S.t() * new_Omega);
-    double sum_ = 0;
+    double sum_ = accu(new_D_w) / V_row.n_rows;
     
     List err_ = calcErrors(new_X,new_Omega,new_D_w, new_D_h,
                            V_row, R, S, coef_, coef_der_X,
@@ -317,7 +322,7 @@ field<mat> derivative_stage2(const arma::mat& X,
     
     uword neg_props = getNegative(new_X * R);
     uword neg_basis = getNegative(S.t() * new_Omega);
-    double sum_ = 0;
+    double sum_ = accu(new_D_w) / V_row.n_rows;
     
     List err_ = calcErrors(new_X,new_Omega,new_D_w, new_D_h,
                            V_row, R, S, 1, coef_der_X,
@@ -388,13 +393,21 @@ List run_optimization( const arma::mat& X,
                          coef_der_Omega, coef_hinge_H,
                          coef_hinge_W, coef_pos_D_h,
                          coef_pos_D_w);
+  
+  uword neg_props = getNegative(new_X * R);
+  uword neg_basis = getNegative(S.t() * new_Omega);
+  double sum_ = accu(new_D_w) / V_row.n_rows;
+  
   errors_statistics.row(0) = { err_["error_"],
                                err_["lambda_error"],
                                err_["beta_error"],
                                err_["D_h_error"],
                                err_["D_w_error"],
                                err_["new_error"],
-                               err_["orig_deconv_error"] };
+                               err_["orig_deconv_error"],
+                                   neg_props,
+                                   neg_basis,
+                                   sum_};
   
   if (startWithInit) {
     field<mat> stage1 = derivative_stage1(new_X,new_Omega,new_D_w,V_row,

@@ -362,8 +362,8 @@ SinkhornNNLSLinseed <- R6Class(
   idxTableOmega <- idxTableOmega[order(idxTableOmega[,(self$cell_types+1)],decreasing=F),]
   idxTableX <- idxTableX[order(idxTableX[,(self$cell_types+1)],decreasing=F),]
   
-  return(list(idsTableOmega = idxTableOmega[1:top,,drop=F],
-              idsTableX = idxTableX[1:top,,drop=F]))
+  return(list(idsTableOmega = idxTableOmega[1:top,,drop=FALSE],
+              idsTableX = idxTableX[1:top,,drop=FALSE]))
 },
 
     readInitValues = function(file) {
@@ -532,7 +532,8 @@ SinkhornNNLSLinseed <- R6Class(
       self$errors_statistics <- res_$errors
   
       colnames(self$errors_statistics) <- c("deconv_error","lamdba_error","beta_error",
-                                            "D_h_error","D_w_error","total_error","orig_deconv_error")
+                                            "D_h_error","D_w_error","total_error","orig_deconv_error",
+                                            "neg_props_count","neg_basis_count","sum_d_w")
       self$H_ <- self$X %*% self$R
       self$full_proportions <- diag(self$D_h[,1]) %*% self$H_
       self$orig_full_proportions <- self$full_proportions
@@ -552,7 +553,8 @@ SinkhornNNLSLinseed <- R6Class(
     tail_rows = NULL) {
       if (is.null(colnames(self$errors_statistics))) {
         colnames(self$errors_statistics) <- c("deconv_error","lamdba_error","beta_error",
-                                            "D_h_error","D_w_error","total_error","orig_deconv_error")
+                                            "D_h_error","D_w_error","total_error","orig_deconv_error",
+                                            "neg_props_count","neg_basis_count","sum_d_w")
       }
       toPlot <- data.frame(self$errors_statistics[,c("iteration",variables)])
       if (!is.null(tail_rows)) {
