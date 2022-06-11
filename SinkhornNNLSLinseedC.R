@@ -7,6 +7,7 @@ library(progress)
 library(corpcor)
 library(MASS)
 library(nnls)
+library(gridExtra)
 
 SinkhornNNLSLinseed <- R6Class(
   "SinkhornNNLSLinseed",
@@ -34,6 +35,8 @@ SinkhornNNLSLinseed <- R6Class(
     full_proportions = NULL,
     orig_full_basis = NULL,
     full_basis = NULL,
+    distance_genes = NULL,
+    distance_samples = NULL,
     data = NULL,
     V_row = NULL,
     V_column = NULL,
@@ -69,6 +72,8 @@ SinkhornNNLSLinseed <- R6Class(
     count_neg_props = NULL,
     count_neg_basis = NULL,
     errors_statistics = NULL,
+    points_statistics_X = NULL,
+    points_statistics_Omega = NULL,
     init_errors_statistics = NULL,
     genes_mean = NULL,
     genes_sd = NULL,
@@ -202,7 +207,81 @@ SinkhornNNLSLinseed <- R6Class(
       self$M <- nrow(self$filtered_dataset)
     },
     
-    scaleDataset = function(iterations = 10000){
+    calculateDistances = function() {
+      if (is.null(self$R)) {
+        stop("Run getSvdProjectionsNew first")
+      }
+      
+      self$distance_genes <- sqrt(apply((t(self$V_row) - t(self$R) %*% self$R %*% t(self$V_row))^2,2,sum))
+      self$distance_samples <- sqrt(apply((self$V_column - t(self$S) %*% self$S %*% self$V_column)^2,2,sum))
+
+      self$distance_genes <- sort(self$distance_genes,decreasing=T)
+      self$distance_samples <- sort(self$distance_samples,decreasing=T)
+    },
+    
+    plotDistances = function() {
+      if (is.null(self$distance_genes)) {
+        stop("Run calculateDistances first")
+      }
+      
+      toPlot_Genes <- data.frame(Distance=self$distance_genes)
+      rownames(toPlot_Genes) <- names(self$distance_genes)
+      toPlot_Genes$idx <- 1:nrow(toPlot_Genes)
+      
+      toPlot_Samples <- data.frame(Distance=self$distance_samples)
+      rownames(toPlot_Samples) <- names(self$distance_samples)
+      toPlot_Samples$idx <- 1:nrow(toPlot_Samples)
+      
+      pltGenes <- ggplot(toPlot_Genes,aes(x=idx,y=Distance)) +
+        geom_point(size=0.1) +
+        geom_line() + theme_minimal()
+      
+      pltSamples <- ggplot(toPlot_Samples,aes(x=idx,y=Distance)) +
+        geom_point(size=0.1) +
+        geom_line() + theme_minimal()
+      
+      grid.arrange(pltGenes,pltSamples)
+      
+    },
+    
+    filterByDistance = function(filter_genes = 0, filter_samples = 0,
+                                reproject = T, iterations = 100) {
+      
+      if (is.null(self$distance_genes)) {
+        stop("Run calculateDistances first")
+      }
+      
+      keep_genes <- rownames(self$V_row)
+      keep_samples <- colnames(self$V_row)
+      
+      if (filter_genes >= self$M) {
+        stop("No genes left")
+      }
+      
+      if (filter_samples >= self$N) {
+        stop("No samples left")
+      }
+      
+      if (filter_genes > 0) {
+        keep_genes <- self$distance_genes[(filter_genes+1):tmp_snk_100000$M]
+      }
+
+      if (filter_samples > 0) {
+        keep_samples <- self$distance_samples[(filter_samples+1):tmp_snk_100000$N]
+      }
+      
+      self$top_genes <- keep_genes
+      self$filtered_dataset <- self$filtered_dataset[keep_genes,keep_samples]
+      self$M <- nrow(self$filtered_dataset)
+      self$N <- ncol(self$filtered_dataset)
+
+      if (reproject) {
+        self$scaleDataset(iterations)
+        self$getSvdProjectionsNew()
+      }
+    },
+    
+    scaleDataset = function(iterations = 100){
       V <- self$raw_dataset[rownames(self$filtered_dataset),]
       V_row <- V
       V_column <- V
@@ -225,38 +304,6 @@ SinkhornNNLSLinseed <- R6Class(
       rownames(self$V_column) <- rownames(self$filtered_dataset)
       colnames(self$V_column) <- colnames(self$filtered_dataset)
     },
-    
-    getSvdProjections = function(k = self$cell_types) {
-      V <- self$V_row
-      
-      #R
-      R_0 <- matrix(1/sqrt(self$N),ncol=self$N,nrow=1)
-      V_t <- t(V)-(t(R_0) %*% R_0 %*% t(V))
-      svd_ <- svd(V_t)
-      
-      svd_k <- matrix(0,ncol=self$N,nrow=k)
-      svd_k[1,] <- R_0
-      svd_k[2:k,] <- t(svd_$u[,1:(k-1)])
-      
-      
-      self$R <- svd_k
-      self$A <- matrix(apply(self$R,1,sum),ncol=1,nrow=self$cell_types)
-      self$new_points <- self$V_ %*% t(self$R)
-      
-      #S
-      V_col <- t(self$V_column)
-      S_0 <- matrix(1/sqrt(self$M),ncol=self$M,nrow=1)
-      V_m <- t(V_col) - t(S_0) %*% S_0 %*% t(V_col)
-      svd_ <- svd(V_m)
-      
-      svd_s_k <- matrix(0,ncol=self$M,nrow=k)
-      svd_s_k[1,] <- S_0
-      svd_s_k[2:k,] <- t(svd_$u[,1:(k-1)])
-      
-      self$S <- svd_s_k
-      self$B <- matrix(apply(self$S,1,sum),ncol=1,nrow=self$cell_types)
-      self$new_samples_points <- t(self$S %*% t(V_col))
-    },
 
     getSvdProjectionsNew = function(k = self$cell_types){
       svd_ <- svd(self$V_row)
@@ -273,7 +320,9 @@ SinkhornNNLSLinseed <- R6Class(
       self$new_samples_points <- t(self$S %*% self$V_column)
     },
     
-    selectInitOmega = function() {
+    selectInitOmega = function(seed = NULL) {
+      set.seed(seed)
+      
       restored <- t(self$S) %*% t(self$new_samples_points)
       p <- self$cell_types
       x <- t(self$new_samples_points)
@@ -305,7 +354,9 @@ SinkhornNNLSLinseed <- R6Class(
       self$init_X <- ginv(self$init_Omega %*% diag(self$init_D_w[,1])) %*% V__
     },
 
-    selectInitX = function() {
+    selectInitX = function(seed = NULL) {
+      set.seed(seed)
+      
       restored <- self$new_points %*% self$R
       p <- self$cell_types
 
@@ -336,35 +387,90 @@ SinkhornNNLSLinseed <- R6Class(
       self$init_Omega <- V__ %*% ginv(diag(self$init_D_w[,1]) %*% self$init_X)
 
     },
+    
+    selectInitRandom = function(seed = NULL) {
+      set.seed(seed)
+      
+      #Omega
+      ids_Omega <- sample(1:self$N,self$cell_types)  
+      Ae <- self$V_column[,ids_Omega]
+      self$init_Omega <- self$S %*% Ae
+      
+      #X
+      ids_X <- sample(1:self$N,self$cell_types)
+      Ae <- self$V_row[ids_X,]
+      self$init_X <- Ae %*% t(self$R)
+      
+      V__ <- self$S %*% self$V_row %*% t(self$R)
+      ## calculate D_w and D_h
+      ## vectorizing deconvolution
+      vec_mtx <- matrix(0,self$cell_types*self$cell_types,self$cell_types)
+      for (col_ in 1:self$cell_types) {
+        vec_mtx[,col_] <- cbind(c(t(t(self$init_Omega[,col_])) %*% self$init_X[col_,]))
+      }
+      ## adding sum-to-one constraint
+      self$init_D_w <- matrix(nnls(rbind(vec_mtx,self$init_Omega),rbind(cbind(c(V__)),self$B))$x,nrow=self$cell_types,ncol=1)
+      self$init_D_h <- self$init_D_w * (self$N/self$M)
+    },
+    
+    selectInitRandomCentered = function(seed = NULL) {
+      set.seed(seed)
+      
+      #Omega
+      ids_Omega <- sample(1:self$N,(self$cell_types-1))  
+      Ae <- self$V_column[,ids_Omega]
+      
+      init_Omega <- self$S %*% Ae
+      self$init_Omega <- cbind(c(1/sqrt(self$M),-apply(init_Omega[-1,],1,sum)),
+                          init_Omega)
+      
+      #X
+      ids_X <- sample(1:self$N,(self$cell_types-1))
+      Ae <- self$V_row[ids_X,]
+      init_X <- Ae %*% t(self$R)
+      self$init_X <- rbind(c(1/sqrt(self$N),-apply(init_X[,-1],2,sum)),
+                           init_X)
+      
+      V__ <- self$S %*% self$V_row %*% t(self$R)
+      ## calculate D_w and D_h
+      ## vectorizing deconvolution
+      vec_mtx <- matrix(0,self$cell_types*self$cell_types,self$cell_types)
+      for (col_ in 1:self$cell_types) {
+        vec_mtx[,col_] <- cbind(c(t(t(self$init_Omega[,col_])) %*% self$init_X[col_,]))
+      }
+      ## adding sum-to-one constraint
+      self$init_D_w <- matrix(nnls(rbind(vec_mtx,self$init_Omega),rbind(cbind(c(V__)),self$B))$x,nrow=self$cell_types,ncol=1)
+      self$init_D_h <- self$init_D_w * (self$N/self$M)
+    },
 
-    initWithSubset = function(n,top) {
-  idxTableX <- matrix(0,ncol=self$cell_types+1,nrow=n)
-  idxTableOmega <- matrix(0,ncol=self$cell_types+1,nrow=n)
-  for (i in 1:n) {
-    #Omega
-    ids_Omega <- sample(1:self$N,self$cell_types)  
-    Ae <- self$V_column[,ids_Omega]
-    init_Omega <- self$S %*% Ae
-    metric_Omega <- sqrt(sum(apply(init_Omega[-1,],1,mean)^2))
-    
-    idxTableOmega[i,] <- c(ids_Omega,metric_Omega)
-    
-    
-    #X
-    ids_X <- sample(1:self$N,self$cell_types)
-    Ae <- self$V_row[ids_X,]
-    init_X <- Ae %*% t(self$R)
-    metric_X <- sqrt(sum(apply(init_X[,-1],2,mean)^2))
-    
-    idxTableX[i,] <- c(ids_X,metric_X)
-  }
+  initWithSubset = function(n,top) {
+      idxTableX <- matrix(0,ncol=self$cell_types+1,nrow=n)
+      idxTableOmega <- matrix(0,ncol=self$cell_types+1,nrow=n)
+      for (i in 1:n) {
+        #Omega
+        ids_Omega <- sample(1:self$N,self$cell_types)  
+        Ae <- self$V_column[,ids_Omega]
+        init_Omega <- self$S %*% Ae
+        metric_Omega <- sqrt(sum(apply(init_Omega[-1,],1,mean)^2))
+        
+        idxTableOmega[i,] <- c(ids_Omega,metric_Omega)
+        
+        
+        #X
+        ids_X <- sample(1:self$N,self$cell_types)
+        Ae <- self$V_row[ids_X,]
+        init_X <- Ae %*% t(self$R)
+        metric_X <- sqrt(sum(apply(init_X[,-1],2,mean)^2))
+        
+        idxTableX[i,] <- c(ids_X,metric_X)
+      }
   
-  idxTableOmega <- idxTableOmega[order(idxTableOmega[,(self$cell_types+1)],decreasing=F),]
-  idxTableX <- idxTableX[order(idxTableX[,(self$cell_types+1)],decreasing=F),]
-  
-  return(list(idsTableOmega = idxTableOmega[1:top,,drop=FALSE],
-              idsTableX = idxTableX[1:top,,drop=FALSE]))
-},
+      idxTableOmega <- idxTableOmega[order(idxTableOmega[,(self$cell_types+1)],decreasing=F),]
+      idxTableX <- idxTableX[order(idxTableX[,(self$cell_types+1)],decreasing=F),]
+      
+      return(list(idsTableOmega = idxTableOmega[1:top,,drop=FALSE],
+                  idsTableX = idxTableX[1:top,,drop=FALSE]))
+    },
 
     readInitValues = function(file) {
       initValues <- readRDS(file)
@@ -389,7 +495,6 @@ SinkhornNNLSLinseed <- R6Class(
       self$new_points <- self$V_row %*% t(self$R)
       self$B <- matrix(apply(self$S,1,sum),ncol=1,nrow=self$cell_types)
       self$new_samples_points <- t(self$S %*% self$V_column)
-
     },
     
     hinge = function(X) {
@@ -530,6 +635,8 @@ SinkhornNNLSLinseed <- R6Class(
       self$D_w <- res_$new_D_w
       self$D_h <- res_$new_D_h
       self$errors_statistics <- res_$errors
+      self$points_statistics_X <- res_$points_X
+      self$points_statistics_Omega <- res_$points_Omega
   
       colnames(self$errors_statistics) <- c("deconv_error","lamdba_error","beta_error",
                                             "D_h_error","D_w_error","total_error","orig_deconv_error",

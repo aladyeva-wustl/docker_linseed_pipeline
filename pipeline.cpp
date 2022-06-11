@@ -168,6 +168,8 @@ field<mat> derivative_stage1(const arma::mat& X,
                            const double M,
                            const int global_iterations,
                            arma::mat& errors_statistics,
+                           arma::mat& points_statistics_X,
+                           arma::mat& points_statistics_Omega,
                            const int steps = 100) {
   
   arma::mat new_X = X;
@@ -236,14 +238,18 @@ field<mat> derivative_stage1(const arma::mat& X,
                                    neg_props,
                                    neg_basis,
                                    sum_};
+    points_statistics_X.row(itr_) = new_X.as_row();
+    points_statistics_Omega.row(itr_) = new_Omega.as_row();
   }
   
-  field<mat> ret_(5,1);
+  field<mat> ret_(7,1);
   ret_(0,0) = new_X;
   ret_(1,0) = new_Omega;
   ret_(2,0) = new_D_w;
   ret_(3,0) = new_D_h;
   ret_(4,0) = errors_statistics;
+  ret_(5,0) = points_statistics_X;
+  ret_(6,0) = points_statistics_Omega;
   
   return ret_;
 }
@@ -265,7 +271,9 @@ field<mat> derivative_stage2(const arma::mat& X,
                              const double M,
                              const int global_iterations,
                              arma::mat& errors_statistics,
-                             const int start_idx) {
+                             const int start_idx,
+                             arma::mat& points_statistics_X,
+                             arma::mat& points_statistics_Omega) {
   arma::mat new_X = X;
   arma::mat new_Omega = Omega;
   arma::mat new_D_w = D_w;
@@ -339,15 +347,20 @@ field<mat> derivative_stage2(const arma::mat& X,
                                                             neg_props,
                                                             neg_basis,
                                                             sum_};
+    points_statistics_X.row(itr_) = new_X.as_row();
+    points_statistics_Omega.row(itr_) = new_Omega.as_row();
+    
     
   }
   
-  field<mat> ret_(5,1);
+  field<mat> ret_(7,1);
   ret_(0,0) = new_X;
   ret_(1,0) = new_Omega;
   ret_(2,0) = new_D_w;
   ret_(3,0) = new_D_h;
   ret_(4,0) = errors_statistics;
+  ret_(5,0) = points_statistics_X;
+  ret_(6,0) = points_statistics_Omega;
   
   return ret_;
   
@@ -374,19 +387,28 @@ List run_optimization( const arma::mat& X,
                        const int global_iterations,
                        const bool startWithInit ) {
   arma::mat errors_statistics;
-  int start_idx;
+  arma::mat points_statistics_X;
+  arma::mat points_statistics_Omega;
+  
+  int start_idx, rows_iterations;
   mat new_X = X;
   mat new_Omega = Omega;
   mat new_D_w = D_w;
   mat new_D_h = D_w * (N/M);
   
   if (startWithInit) {
-    errors_statistics.set_size(2*global_iterations+1,10);
-    errors_statistics.fill(fill::zeros);
+    rows_iterations = 2 * global_iterations + 1;
   } else {
-    errors_statistics.set_size(global_iterations+1,10);
-    errors_statistics.fill(fill::zeros);
+    rows_iterations = global_iterations + 1;
   }
+  errors_statistics.set_size(rows_iterations, 10);
+  errors_statistics.fill(fill::zeros);
+  
+  points_statistics_X.set_size(rows_iterations, cell_types*cell_types);
+  points_statistics_X.fill(fill::zeros);
+  
+  points_statistics_Omega.set_size(rows_iterations, cell_types*cell_types);
+  points_statistics_Omega.fill(fill::zeros);
   
   List err_ = calcErrors(new_X, new_Omega, new_D_w, new_D_h,
                          V_row, R, S, 1, coef_der_X,
@@ -409,6 +431,9 @@ List run_optimization( const arma::mat& X,
                                    neg_basis,
                                    sum_};
   
+  points_statistics_X.row(0) = new_X.as_row();
+  points_statistics_Omega.row(0) = new_Omega.as_row();
+  
   if (startWithInit) {
     field<mat> stage1 = derivative_stage1(new_X,new_Omega,new_D_w,V_row,
                              R,S,splits,intervals,
@@ -416,7 +441,9 @@ List run_optimization( const arma::mat& X,
                              coef_hinge_H,coef_hinge_W,
                              coef_pos_D_h,coef_pos_D_w,
                              cell_types,N,M,global_iterations,
-                             errors_statistics);
+                             errors_statistics,
+                             points_statistics_X,
+                             points_statistics_Omega);
     start_idx = global_iterations+1;
     new_X = stage1(0,0);
     new_Omega = stage1(1,0);
@@ -432,18 +459,22 @@ List run_optimization( const arma::mat& X,
                                         coef_hinge_H,coef_hinge_W,
                                         coef_pos_D_h,coef_pos_D_w,
                                         cell_types, N, M, global_iterations,
-                                        errors_statistics, start_idx);
+                                        errors_statistics, start_idx,
+                                        points_statistics_X,
+                                        points_statistics_Omega);
   
   new_X = stage2(0,0);
   new_Omega = stage2(1,0);
   new_D_w = stage2(2,0);
   new_D_h = stage2(3,0);
   
-  return List::create(Named("new_X")=new_X,
-                      Named("new_Omega")=new_Omega,
-                      Named("new_D_w")=new_D_w,
-                      Named("new_D_h")=new_D_h,
-                      Named("errors")=errors_statistics);
+  return List::create(Named("new_X") = new_X,
+                      Named("new_Omega") = new_Omega,
+                      Named("new_D_w") = new_D_w,
+                      Named("new_D_h") = new_D_h,
+                      Named("errors") = errors_statistics,
+                      Named("points_X") = points_statistics_X,
+                      Named("points_Omega") = points_statistics_Omega);
   
   
 }
