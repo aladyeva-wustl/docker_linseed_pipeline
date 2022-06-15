@@ -263,11 +263,13 @@ SinkhornNNLSLinseed <- R6Class(
       }
       
       if (filter_genes > 0) {
-        keep_genes <- self$distance_genes[(filter_genes+1):tmp_snk_100000$M]
+        start_gene <- filter_genes + 1
+        keep_genes <- names(self$distance_genes[start_gene:self$M])
       }
 
       if (filter_samples > 0) {
-        keep_samples <- self$distance_samples[(filter_samples+1):tmp_snk_100000$N]
+        start_sample <- filter_samples + 1
+        keep_samples <- names(self$distance_samples[start_sample:self$N])
       }
       
       self$top_genes <- keep_genes
@@ -282,7 +284,8 @@ SinkhornNNLSLinseed <- R6Class(
     },
     
     scaleDataset = function(iterations = 100){
-      V <- self$raw_dataset[rownames(self$filtered_dataset),]
+      V <- self$raw_dataset[rownames(self$filtered_dataset),
+                            colnames(self$filtered_dataset)]
       V_row <- V
       V_column <- V
       pb <- progress_bar$new(
@@ -388,16 +391,41 @@ SinkhornNNLSLinseed <- R6Class(
 
     },
     
-    selectInitRandom = function(seed = NULL) {
+    selectInitRandom = function(seed = NULL,
+                                n = 1000) {
       set.seed(seed)
       
+      idxTableX <- matrix(0,ncol=self$cell_types+1,nrow=n)
+      idxTableOmega <- matrix(0,ncol=self$cell_types+1,nrow=n)
+      for (i in 1:n) {
+        #Omega
+        ids_Omega <- sample(1:self$N,self$cell_types)  
+        Ae <- self$V_column[,ids_Omega]
+        init_Omega <- self$S %*% Ae
+        metric_Omega <- sqrt(sum(apply(init_Omega[-1,],1,mean)^2))
+        
+        idxTableOmega[i,] <- c(ids_Omega,metric_Omega)
+        
+        
+        #X
+        ids_X <- sample(1:self$N,self$cell_types)
+        Ae <- self$V_row[ids_X,]
+        init_X <- Ae %*% t(self$R)
+        metric_X <- sqrt(sum(apply(init_X[,-1],2,mean)^2))
+        
+        idxTableX[i,] <- c(ids_X,metric_X)
+      }
+      
+      idxTableOmega <- idxTableOmega[order(idxTableOmega[,(self$cell_types+1)],decreasing=F),]
+      idxTableX <- idxTableX[order(idxTableX[,(self$cell_types+1)],decreasing=F),]
+      
       #Omega
-      ids_Omega <- sample(1:self$N,self$cell_types)  
+      ids_Omega <- idxTableOmega[1,,drop=F]
       Ae <- self$V_column[,ids_Omega]
       self$init_Omega <- self$S %*% Ae
       
       #X
-      ids_X <- sample(1:self$N,self$cell_types)
+      ids_X <- idxTableX[1,,drop=F]
       Ae <- self$V_row[ids_X,]
       self$init_X <- Ae %*% t(self$R)
       
@@ -605,11 +633,9 @@ SinkhornNNLSLinseed <- R6Class(
       self$full_proportions <- diag(self$D_h[,1]) %*% self$H_
       self$init_count_neg_props <- sum(self$full_proportions < -1e-10)
   
-      self$W_ <- t(self$S) %*% self$Omega %*% diag(self$D_w[,1])
-      self$init_count_neg_basis <- sum(self$W_ < -1e-10)
-
-      self$count_neg_props <- self$init_count_neg_props
-      self$count_neg_basis <- self$init_count_neg_basis
+      self$W_ <- t(self$S) %*% self$Omega 
+      self$full_basis <- self$W_ %*% diag(self$D_w[,1])
+      self$init_count_neg_basis <- sum(self$full_basis < -1e-10)
       
       splits <- NULL
       intervals <- NULL
@@ -644,11 +670,16 @@ SinkhornNNLSLinseed <- R6Class(
       self$H_ <- self$X %*% self$R
       self$full_proportions <- diag(self$D_h[,1]) %*% self$H_
       self$orig_full_proportions <- self$full_proportions
+      self$count_neg_props <- sum(self$full_proportions < -1e-10)
+      
       self$full_proportions[self$full_proportions < -1e-10] <- 0
       self$full_proportions <- t(t(self$full_proportions) / rowSums(t(self$full_proportions)))
+      
 
       self$W_ <- t(self$S) %*% self$Omega
       self$full_basis <- self$W_ %*% diag(self$D_w[,1])
+      self$count_neg_basis <- sum(self$full_basis < -1e-10)
+
       self$orig_full_basis <- self$full_basis
       self$full_basis[self$full_basis < -1e-10] <- 0
       self$full_basis <- self$full_basis / rowSums(self$full_basis)
