@@ -74,6 +74,7 @@ SinkhornNNLSLinseed <- R6Class(
     errors_statistics = NULL,
     points_statistics_X = NULL,
     points_statistics_Omega = NULL,
+    blocks_statistics = NULL,
     init_errors_statistics = NULL,
     genes_mean = NULL,
     genes_sd = NULL,
@@ -263,11 +264,13 @@ SinkhornNNLSLinseed <- R6Class(
       }
       
       if (filter_genes > 0) {
-        keep_genes <- self$distance_genes[(filter_genes+1):tmp_snk_100000$M]
+        start_gene <- filter_genes + 1
+        keep_genes <- names(self$distance_genes[start_gene:self$M])
       }
 
       if (filter_samples > 0) {
-        keep_samples <- self$distance_samples[(filter_samples+1):tmp_snk_100000$N]
+        start_sample <- filter_samples + 1
+        keep_samples <- names(self$distance_samples[start_sample:self$N])
       }
       
       self$top_genes <- keep_genes
@@ -282,7 +285,8 @@ SinkhornNNLSLinseed <- R6Class(
     },
     
     scaleDataset = function(iterations = 100){
-      V <- self$raw_dataset[rownames(self$filtered_dataset),]
+      V <- self$raw_dataset[rownames(self$filtered_dataset),
+                            colnames(self$filtered_dataset)]
       V_row <- V
       V_column <- V
       pb <- progress_bar$new(
@@ -388,16 +392,41 @@ SinkhornNNLSLinseed <- R6Class(
 
     },
     
-    selectInitRandom = function(seed = NULL) {
+    selectInitRandom = function(seed = NULL,
+                                n = 1000) {
       set.seed(seed)
       
+      idxTableX <- matrix(0,ncol=self$cell_types+1,nrow=n)
+      idxTableOmega <- matrix(0,ncol=self$cell_types+1,nrow=n)
+      for (i in 1:n) {
+        #Omega
+        ids_Omega <- sample(1:self$N,self$cell_types)  
+        Ae <- self$V_column[,ids_Omega]
+        init_Omega <- self$S %*% Ae
+        metric_Omega <- sqrt(sum(apply(init_Omega[-1,],1,mean)^2))
+        
+        idxTableOmega[i,] <- c(ids_Omega,metric_Omega)
+        
+        
+        #X
+        ids_X <- sample(1:self$N,self$cell_types)
+        Ae <- self$V_row[ids_X,]
+        init_X <- Ae %*% t(self$R)
+        metric_X <- sqrt(sum(apply(init_X[,-1],2,mean)^2))
+        
+        idxTableX[i,] <- c(ids_X,metric_X)
+      }
+      
+      idxTableOmega <- idxTableOmega[order(idxTableOmega[,(self$cell_types+1)],decreasing=F),]
+      idxTableX <- idxTableX[order(idxTableX[,(self$cell_types+1)],decreasing=F),]
+      
       #Omega
-      ids_Omega <- sample(1:self$N,self$cell_types)  
+      ids_Omega <- idxTableOmega[1,,drop=F]
       Ae <- self$V_column[,ids_Omega]
       self$init_Omega <- self$S %*% Ae
       
       #X
-      ids_X <- sample(1:self$N,self$cell_types)
+      ids_X <- idxTableX[1,,drop=F]
       Ae <- self$V_row[ids_X,]
       self$init_X <- Ae %*% t(self$R)
       
@@ -587,6 +616,107 @@ SinkhornNNLSLinseed <- R6Class(
 
       grid.arrange(pltX,pltOmega,nrow=1)
     },
+  
+    runGradientBlock = function(
+      block_name = NULL,
+      coef_der_X = self$coef_der_X,
+      coef_der_Omega = self$coef_der_Omega,
+      coef_hinge_H = self$coef_hinge_H,
+      coef_hinge_W = self$coef_hinge_W,
+      coef_pos_D_h = self$coef_pos_D_h,
+      coef_pos_D_w = self$coef_pos_D_w,
+      iterations = self$global_iterations,
+      startWithInit = F
+    ) {
+      
+      if (is.null(self$X) | startWithInit) {
+        self$blocks_statistics <- data.frame(matrix(0,nrow=0,ncol=10))
+        self$errors_statistics <- NULL
+        self$points_statistics_X <- NULL
+        self$points_statistics_Omega <- NULL
+        
+        self$X <- self$init_X
+        self$D_w <- self$init_D_w
+        self$Omega <- self$init_Omega
+        
+        self$D_h <- self$init_D_h
+        
+        self$H_ <- self$X %*% self$R
+        self$full_proportions <- diag(self$D_h[,1]) %*% self$H_
+        self$init_count_neg_props <- sum(self$full_proportions < -1e-10)
+        
+        self$W_ <- t(self$S) %*% self$Omega 
+        self$full_basis <- self$W_ %*% diag(self$D_w[,1])
+        self$init_count_neg_basis <- sum(self$full_basis < -1e-10)
+      }
+      
+      step_errors_statistics <- matrix(0,nrow=iterations,ncol=10)
+      step_points_statistics_X <- matrix(0,nrow=iterations,ncol=self$cell_types^2)
+      step_points_statistics_Omega <- matrix(0,nrow=iterations,ncol=self$cell_types^2)
+      
+      if (is.null(block_name)) {
+        block_name <- paste0("block_", nrow(self$blocks_statistics)+1)
+      }
+      
+      if (is.null(self$errors_statistics)) {
+        from_idx <- 1
+      } else {
+        from_idx <- nrow(self$errors_statistics) + 1
+      }
+      
+      self$blocks_statistics <- rbind(self$blocks_statistics,
+                                      c(block_name, from_idx, from_idx+iterations-1,
+                                        coef_der_X, coef_der_Omega, coef_hinge_H,
+                                        coef_hinge_W, coef_pos_D_h, coef_pos_D_w,
+                                        iterations))
+      
+      colnames(self$blocks_statistics) <- c("block_name",
+                                            "from", "to",
+                                            "coef_der_X", "coef_der_Omega", 
+                                            "coef_hinge_H", "coef_hinge_W", 
+                                            "coef_pos_D_h", "coef_pos_D_w",
+                                            "iterations")
+      
+      res_ <- derivative_stage2(self$X, self$Omega, self$D_w,
+                               self$V_row, self$R, self$S,
+                               coef_der_X, coef_der_Omega,
+                               coef_hinge_H, coef_hinge_W, coef_pos_D_h,
+                               coef_pos_D_w, self$cell_types, self$N, self$M,
+                               iterations, step_errors_statistics, 0,
+                               step_points_statistics_X, step_points_statistics_Omega)
+      
+      self$X <- res_[[1]]
+      self$Omega <- res_[[2]]
+      self$D_w <- res_[[3]]
+      self$D_h <- res_[[4]]
+      self$errors_statistics <- rbind(self$errors_statistics,
+                                      res_[[5]])
+      self$points_statistics_X <- rbind(self$points_statistics_X,
+                                        res_[[6]])
+      self$points_statistics_Omega <- rbind(self$points_statistics_Omega,
+                                            res_[[7]])
+      
+      colnames(self$errors_statistics) <- c("deconv_error","lamdba_error","beta_error",
+                                            "D_h_error","D_w_error","total_error","orig_deconv_error",
+                                            "neg_props_count","neg_basis_count","sum_d_w")
+      self$H_ <- self$X %*% self$R
+      self$full_proportions <- diag(self$D_h[,1]) %*% self$H_
+      self$orig_full_proportions <- self$full_proportions
+      self$count_neg_props <- sum(self$full_proportions < -1e-10)
+      
+      self$full_proportions[self$full_proportions < -1e-10] <- 0
+      self$full_proportions <- t(t(self$full_proportions) / rowSums(t(self$full_proportions)))
+      
+      
+      self$W_ <- t(self$S) %*% self$Omega
+      self$full_basis <- self$W_ %*% diag(self$D_w[,1])
+      self$count_neg_basis <- sum(self$full_basis < -1e-10)
+      
+      self$orig_full_basis <- self$full_basis
+      self$full_basis[self$full_basis < -1e-10] <- 0
+      self$full_basis <- self$full_basis / rowSums(self$full_basis)
+      
+    },
     
     runOptimization = function(debug=FALSE, idx = NULL, 
         repeats_=5, runInitOptim = T) {
@@ -605,11 +735,9 @@ SinkhornNNLSLinseed <- R6Class(
       self$full_proportions <- diag(self$D_h[,1]) %*% self$H_
       self$init_count_neg_props <- sum(self$full_proportions < -1e-10)
   
-      self$W_ <- t(self$S) %*% self$Omega %*% diag(self$D_w[,1])
-      self$init_count_neg_basis <- sum(self$W_ < -1e-10)
-
-      self$count_neg_props <- self$init_count_neg_props
-      self$count_neg_basis <- self$init_count_neg_basis
+      self$W_ <- t(self$S) %*% self$Omega 
+      self$full_basis <- self$W_ %*% diag(self$D_w[,1])
+      self$init_count_neg_basis <- sum(self$full_basis < -1e-10)
       
       splits <- NULL
       intervals <- NULL
@@ -644,11 +772,16 @@ SinkhornNNLSLinseed <- R6Class(
       self$H_ <- self$X %*% self$R
       self$full_proportions <- diag(self$D_h[,1]) %*% self$H_
       self$orig_full_proportions <- self$full_proportions
+      self$count_neg_props <- sum(self$full_proportions < -1e-10)
+      
       self$full_proportions[self$full_proportions < -1e-10] <- 0
       self$full_proportions <- t(t(self$full_proportions) / rowSums(t(self$full_proportions)))
+      
 
       self$W_ <- t(self$S) %*% self$Omega
       self$full_basis <- self$W_ %*% diag(self$D_w[,1])
+      self$count_neg_basis <- sum(self$full_basis < -1e-10)
+
       self$orig_full_basis <- self$full_basis
       self$full_basis[self$full_basis < -1e-10] <- 0
       self$full_basis <- self$full_basis / rowSums(self$full_basis)
@@ -656,22 +789,14 @@ SinkhornNNLSLinseed <- R6Class(
     },
     
     plotErrors = function(variables = c("deconv_error","lamdba_error","beta_error",
-    "D_h_error","D_w_error","total_error"),
-    tail_rows = NULL) {
-      if (is.null(colnames(self$errors_statistics))) {
-        colnames(self$errors_statistics) <- c("deconv_error","lamdba_error","beta_error",
-                                            "D_h_error","D_w_error","total_error","orig_deconv_error",
-                                            "neg_props_count","neg_basis_count","sum_d_w")
-      }
-      toPlot <- data.frame(self$errors_statistics[,c("iteration",variables)])
-      if (!is.null(tail_rows)) {
-        toPlot <- tail(toPlot,tail_rows)
-      }
-      toPlot <- melt(toPlot,id.vars="iteration",measure.vars = variables)
-      plt <- ggplot(toPlot,aes(x=iteration,y=value,color=variable)) +
-      geom_point(size=0.2) +
-      geom_line() + theme_minimal()
+    "D_h_error","D_w_error","total_error")) {
       
+      toPlot <- data.frame(self$errors_statistics[,variables])
+      toPlot$iteration <- 0:(nrow(self$errors_statistics)-1)
+      toPlot <- melt(toPlot,id.vars="iteration",measure.vars = variables)
+      plt <- ggplot(toPlot,aes(x=iteration,y=log10(value),color=variable)) +
+        geom_point(size=0.2) +
+        geom_line() + theme_minimal()
       plt
     },
 

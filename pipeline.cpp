@@ -170,7 +170,7 @@ field<mat> derivative_stage1(const arma::mat& X,
                            arma::mat& errors_statistics,
                            arma::mat& points_statistics_X,
                            arma::mat& points_statistics_Omega,
-                           const int steps = 100) {
+                           const int steps = 5) {
   
   arma::mat new_X = X;
   arma::mat new_Omega = Omega;
@@ -179,7 +179,7 @@ field<mat> derivative_stage1(const arma::mat& X,
   double coef_;
   
   arma::mat V__ = S * V_row * R.t();
-  mat B = join_cols(arma::vectorise(V__),arma::sum(S,1));
+  mat B = join_cols(arma::vectorise(V__),coef_pos_D_w * arma::sum(S,1));
   arma::mat der_X,der_Omega;
   
   for (int itr_= 1; itr_ <= global_iterations; itr_++) {
@@ -211,7 +211,7 @@ field<mat> derivative_stage1(const arma::mat& X,
     for (int c=0; c<cell_types; c++) {
       vec_mtx.col(c) = arma::vectorise(new_Omega.col(c) * new_X.row(c));
     }
-    arma::mat A = join_cols(vec_mtx, new_Omega);
+    arma::mat A = join_cols(vec_mtx, coef_pos_D_w * new_Omega);
     
     
     new_D_w = nnls(A, B);
@@ -254,6 +254,7 @@ field<mat> derivative_stage1(const arma::mat& X,
   return ret_;
 }
 
+// [[Rcpp::export]]
 field<mat> derivative_stage2(const arma::mat& X,
                              const arma::mat& Omega,
                              const arma::mat& D_w,
@@ -280,7 +281,7 @@ field<mat> derivative_stage2(const arma::mat& X,
   arma::mat new_D_h = new_D_w * (N/M);
   
   arma::mat V__ = S * V_row * R.t();
-  mat B = join_cols(arma::vectorise(V__),arma::sum(S,1));
+  mat B = join_cols(arma::vectorise(V__),coef_pos_D_w * arma::sum(S,1));
   arma::mat der_X,der_Omega;
   
   for (int itr_= start_idx; itr_ < global_iterations+start_idx; itr_++) {
@@ -297,7 +298,7 @@ field<mat> derivative_stage2(const arma::mat& X,
     for (int c=0; c<cell_types; c++) {
       vec_mtx.col(c) = arma::vectorise(new_Omega.col(c) * new_X.row(c));
     }
-    arma::mat A = join_cols(vec_mtx, new_Omega);
+    arma::mat A = join_cols(vec_mtx, coef_pos_D_w * new_Omega);
     
     
     new_D_w = nnls(A, B);
@@ -320,7 +321,7 @@ field<mat> derivative_stage2(const arma::mat& X,
     for (int c=0; c<cell_types; c++) {
       vec_mtx.col(c) = arma::vectorise(new_Omega.col(c) * new_X.row(c));
     }
-    A = join_cols(vec_mtx, new_Omega);
+    A = join_cols(vec_mtx, coef_pos_D_w * new_Omega);
     
     
     new_D_w = nnls(A, B);
