@@ -16,6 +16,16 @@ double getSum(arma::mat X, arma::mat M) {
   return accu(X) / M.n_rows;
 }
 
+// [[Rcpp::export]]
+arma::mat correctByNorm(arma::mat& X) {
+  arma::vec norm_(X.n_cols);
+  for (int k = 0; k < X.n_cols; k++) {
+    norm_[k] = norm(X.col(k),2);
+  }
+  mat B = X * diagmat(1/norm_);
+  B.elem( find_nonfinite(B) ).zeros();
+  return B;
+}
 
 arma::vec nnls_col(const mat &A, const subview_col<double> &b, int max_iter = 500, double tol = 1e-6, bool verbose = false)
 {
@@ -149,6 +159,7 @@ List calcErrors(const arma::mat& X,
                       Named("orig_deconv_error") = orig_deconv_error);
 }
 
+// [[Rcpp::export]]
 field<mat> derivative_stage1(const arma::mat& X,
                            const arma::mat& Omega,
                            const arma::mat& D_w,
@@ -170,7 +181,8 @@ field<mat> derivative_stage1(const arma::mat& X,
                            arma::mat& errors_statistics,
                            arma::mat& points_statistics_X,
                            arma::mat& points_statistics_Omega,
-                           const int steps = 5) {
+                           const double mean_radius_X,
+                           const double mean_radius_Omega) {
   
   arma::mat new_X = X;
   arma::mat new_Omega = Omega;
@@ -179,7 +191,7 @@ field<mat> derivative_stage1(const arma::mat& X,
   double coef_;
   
   arma::mat V__ = S * V_row * R.t();
-  mat B = join_cols(arma::vectorise(V__),coef_pos_D_w * arma::sum(S,1));
+  mat B = join_cols(arma::vectorise(V__),0 * arma::sum(S,1));
   arma::mat der_X,der_Omega;
   
   for (int itr_= 1; itr_ <= global_iterations; itr_++) {
@@ -191,27 +203,41 @@ field<mat> derivative_stage1(const arma::mat& X,
       coef_ = 1;
     }
     
-    for (int i=0; i < steps; i++) {
-      // derivative X
-      der_X = -2 * (diagmat(new_D_w) * new_Omega.t() * (V__ - new_Omega * diagmat(new_D_w) * new_X));
-      der_X = der_X + coef_ * coef_hinge_H * hinge_der_proportions_C__(new_X * R, R);
-      der_X.col(0).zeros();
-      
-      new_X = new_X - coef_der_X * der_X;
-      
-      // derivative Omega
-      der_Omega = -2 * (V__ - new_Omega * diagmat(new_D_w) * new_X) * new_X.t() * diagmat(new_D_w);
-      der_Omega = der_Omega + coef_ * coef_hinge_W * hinge_der_basis_C__(S.t() * new_Omega, S);
-      der_Omega.row(0).zeros();
-      
-      new_Omega = new_Omega - coef_der_Omega * der_Omega;
-    }
+    // derivative X 
+    der_X = -2 * (diagmat(new_D_w) * new_Omega.t() * (V__ - new_Omega * diagmat(new_D_w) * new_X));
+    der_X = der_X + coef_ * coef_hinge_H * hinge_der_proportions_C__(new_X * R, R);
+    der_X.col(0).zeros();
+    der_X = correctByNorm(der_X) * mean_radius_X;
+    
+    new_X = new_X - coef_der_X * der_X;
     
     arma::mat vec_mtx(cell_types*cell_types,cell_types,fill::zeros);
     for (int c=0; c<cell_types; c++) {
       vec_mtx.col(c) = arma::vectorise(new_Omega.col(c) * new_X.row(c));
     }
     arma::mat A = join_cols(vec_mtx, coef_pos_D_w * new_Omega);
+    
+    
+    new_D_w = nnls(A, B);
+    new_D_w.elem(find(new_D_w <= 0)).fill(1e-09);
+    
+    new_D_h = new_D_w * (N/M);
+    
+    // derivative Omega
+    der_Omega = -2 * (V__ - new_Omega * diagmat(new_D_w) * new_X) * new_X.t() * diagmat(new_D_w);
+    der_Omega = der_Omega + coef_ * coef_hinge_W * hinge_der_basis_C__(S.t() * new_Omega, S);
+    der_Omega.row(0).zeros();
+    der_Omega = correctByNorm(der_Omega) * mean_radius_Omega;
+    
+    new_Omega = new_Omega - coef_der_Omega * der_Omega;
+    
+    vec_mtx.fill(fill::zeros);
+    A.fill(fill::zeros);
+    
+    for (int c=0; c<cell_types; c++) {
+      vec_mtx.col(c) = arma::vectorise(new_Omega.col(c) * new_X.row(c));
+    }
+    A = join_cols(vec_mtx, 0 * new_Omega);
     
     
     new_D_w = nnls(A, B);
@@ -274,7 +300,9 @@ field<mat> derivative_stage2(const arma::mat& X,
                              arma::mat& errors_statistics,
                              const int start_idx,
                              arma::mat& points_statistics_X,
-                             arma::mat& points_statistics_Omega) {
+                             arma::mat& points_statistics_Omega,
+                             const double mean_radius_X,
+                             const double mean_radius_Omega) {
   arma::mat new_X = X;
   arma::mat new_Omega = Omega;
   arma::mat new_D_w = D_w;
@@ -282,6 +310,7 @@ field<mat> derivative_stage2(const arma::mat& X,
   
   arma::mat V__ = S * V_row * R.t();
   mat B = join_cols(arma::vectorise(V__),coef_pos_D_w * arma::sum(S,1));
+  mat C = join_cols(arma::vectorise(V__),coef_pos_D_h * arma::sum(R,1));
   arma::mat der_X,der_Omega;
   
   for (int itr_= start_idx; itr_ < global_iterations+start_idx; itr_++) {
@@ -291,6 +320,7 @@ field<mat> derivative_stage2(const arma::mat& X,
     der_X += coef_hinge_H * hinge_der_proportions_C__(new_X * R, R);
     der_X += coef_pos_D_h * 2 * new_D_h * (new_X.t() * new_D_h - arma::sum(R,1)).t();
     der_X.col(0).zeros();
+    der_X = correctByNorm(der_X) * mean_radius_X;
     
     new_X = new_X - coef_der_X * der_X;
     
@@ -298,19 +328,20 @@ field<mat> derivative_stage2(const arma::mat& X,
     for (int c=0; c<cell_types; c++) {
       vec_mtx.col(c) = arma::vectorise(new_Omega.col(c) * new_X.row(c));
     }
-    arma::mat A = join_cols(vec_mtx, coef_pos_D_w * new_Omega);
+    arma::mat A = join_cols((M/N) * vec_mtx, coef_pos_D_h * new_X.t());
     
     
-    new_D_w = nnls(A, B);
-    new_D_w.elem(find(new_D_w <= 0)).fill(1e-09);
+    new_D_h = nnls(A, C);
+    new_D_h.elem(find(new_D_h <= 0)).fill(1e-09);
     
-    new_D_h = new_D_w * (N/M);
+    new_D_w = new_D_h * (M/N);
     
     // derivative Omega
     der_Omega = -2 * (V__ - new_Omega * diagmat(new_D_w) * new_X) * new_X.t() * diagmat(new_D_w);
     der_Omega += coef_hinge_W * hinge_der_basis_C__(S.t() * new_Omega, S);
     der_Omega += coef_pos_D_w * 2 * (new_Omega*new_D_w-arma::sum(S,1)) * D_w.t();
     der_Omega.row(0).zeros();
+    der_Omega = correctByNorm(der_Omega) * mean_radius_Omega;
     
     new_Omega = new_Omega - coef_der_Omega * der_Omega;
     
@@ -386,7 +417,9 @@ List run_optimization( const arma::mat& X,
                        const double N,
                        const double M,
                        const int global_iterations,
-                       const bool startWithInit ) {
+                       const bool startWithInit,
+                       const double mean_radius_X,
+                       const double mean_radius_Omega) {
   arma::mat errors_statistics;
   arma::mat points_statistics_X;
   arma::mat points_statistics_Omega;
@@ -444,7 +477,9 @@ List run_optimization( const arma::mat& X,
                              cell_types,N,M,global_iterations,
                              errors_statistics,
                              points_statistics_X,
-                             points_statistics_Omega);
+                             points_statistics_Omega,
+                             mean_radius_X,
+                             mean_radius_Omega);
     start_idx = global_iterations+1;
     new_X = stage1(0,0);
     new_Omega = stage1(1,0);
@@ -462,7 +497,9 @@ List run_optimization( const arma::mat& X,
                                         cell_types, N, M, global_iterations,
                                         errors_statistics, start_idx,
                                         points_statistics_X,
-                                        points_statistics_Omega);
+                                        points_statistics_Omega,
+                                        mean_radius_X,
+                                        mean_radius_Omega);
   
   new_X = stage2(0,0);
   new_Omega = stage2(1,0);

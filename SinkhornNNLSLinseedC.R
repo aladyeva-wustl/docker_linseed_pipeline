@@ -37,6 +37,8 @@ SinkhornNNLSLinseed <- R6Class(
     full_basis = NULL,
     distance_genes = NULL,
     distance_samples = NULL,
+    mean_radius_X = NULL,
+    mean_radius_Omega = NULL,
     data = NULL,
     V_row = NULL,
     V_column = NULL,
@@ -322,6 +324,9 @@ SinkhornNNLSLinseed <- R6Class(
 
       self$B <- matrix(apply(self$S,1,sum),ncol=1,nrow=self$cell_types)
       self$new_samples_points <- t(self$S %*% self$V_column)
+      
+      self$mean_radius_X <- mean(apply(self$new_points[,-1],1,function(x){norm(x,"2")}))
+      self$mean_radius_Omega <- mean(apply(self$new_samples_points[,-1],1,function(x){norm(x,"2")}))
     },
     
     selectInitOmega = function(seed = NULL) {
@@ -683,7 +688,8 @@ SinkhornNNLSLinseed <- R6Class(
                                coef_hinge_H, coef_hinge_W, coef_pos_D_h,
                                coef_pos_D_w, self$cell_types, self$N, self$M,
                                iterations, step_errors_statistics, 0,
-                               step_points_statistics_X, step_points_statistics_Omega)
+                               step_points_statistics_X, step_points_statistics_Omega,
+                               self$mean_radius_X, self$mean_radius_Omega)
       
       self$X <- res_[[1]]
       self$Omega <- res_[[2]]
@@ -756,7 +762,8 @@ SinkhornNNLSLinseed <- R6Class(
                        self$coef_der_X, self$coef_der_Omega,
                        self$coef_hinge_H, self$coef_hinge_W, self$coef_pos_D_h,
                        self$coef_pos_D_w, self$cell_types, self$N, self$M,
-                       self$global_iterations, runInitOptim)
+                       self$global_iterations, runInitOptim,
+                       self$mean_radius_X, self$mean_radius_Omega)
       
       self$X <- res_$new_X
       self$Omega <- res_$new_Omega
