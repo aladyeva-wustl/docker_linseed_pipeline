@@ -13,6 +13,7 @@ RUN R -e "install.packages('yaml')"
 RUN R -e "install.packages('nnls')"
 RUN R -e "install.packages('Rcpp')"
 RUN R -e "install.packages('RcppArmadillo')"
+RUN R -e "install.packages('gridExtra')"
 
 
 WORKDIR /app
