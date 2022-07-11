@@ -6,6 +6,18 @@ using namespace std;
 
 // [[Rcpp::depends(RcppArmadillo)]]
 
+// [[Rcpp::export]]
+List scaleDataset(const arma::mat& V, int iterations) {
+  arma::mat V_row = V;
+  arma::mat V_column = V;
+  for (int i=0; i<=iterations; i++){
+    V_row = diagmat(1/arma::sum(V_column,1)) * V_column;
+    V_column = V_row * diagmat(1/arma::sum(V_row,0));
+  }
+  return List::create(Named("V_row") = V_row,
+                      Named("V_column") = V_column);
+}
+
 uword getNegative(arma::mat X) {
   uvec q1 = find(X < 0);
   vec B = conv_to<vec>::from(q1);

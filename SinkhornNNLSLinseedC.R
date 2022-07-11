@@ -114,8 +114,8 @@ SinkhornNNLSLinseed <- R6Class(
                           topGenes = 100000,
                           data = NULL,
                           metric="mad",
-                          coef_der_X = 0.00001,
-                          coef_der_Omega = 0.0000001,
+                          coef_der_X = 0.001,
+                          coef_der_Omega = 0.001,
                           coef_pos_D_w = 0.01,
                           coef_pos_D_h = 0.01,
                           coef_hinge_H = 100,
@@ -289,24 +289,25 @@ SinkhornNNLSLinseed <- R6Class(
     scaleDataset = function(iterations = 100){
       V <- self$raw_dataset[rownames(self$filtered_dataset),
                             colnames(self$filtered_dataset)]
-      V_row <- V
-      V_column <- V
-      pb <- progress_bar$new(
-        format = "Scaling dataset [:bar] :percent eta: :eta",
-        total = iterations, clear = FALSE, width= 60)
+      #V_row <- V
+      #V_column <- V
+      #pb <- progress_bar$new(
+      #  format = "Scaling dataset [:bar] :percent eta: :eta",
+      #  total = iterations, clear = FALSE, width= 60)
 
-      for (i in 1:iterations) {
-        self$D_v_row <- diag(1/rowSums(V_column))
-        V_row <- self$D_v_row %*% V_column
-        self$D_v_column <- diag(1/rowSums(t(V_row)))
-        V_column <- V_row %*% self$D_v_column
-        pb$tick()
-      }
-      self$V_row <- V_row
+      #for (i in 1:iterations) {
+      #  self$D_v_row <- diag(1/rowSums(V_column))
+      #  V_row <- self$D_v_row %*% V_column
+      #  self$D_v_column <- diag(1/rowSums(t(V_row)))
+      #  V_column <- V_row %*% self$D_v_column
+      #  pb$tick()
+      #}
+      scaled <- scaleDataset(V)
+      self$V_row <- scaled$V_row
       rownames(self$V_row) <- rownames(self$filtered_dataset)
       colnames(self$V_row) <- colnames(self$filtered_dataset)
 
-      self$V_column <- V_column
+      self$V_column <- scaled$V_column
       rownames(self$V_column) <- rownames(self$filtered_dataset)
       colnames(self$V_column) <- colnames(self$filtered_dataset)
     },
