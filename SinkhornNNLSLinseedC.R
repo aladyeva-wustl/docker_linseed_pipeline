@@ -214,7 +214,7 @@ SinkhornNNLSLinseed <- R6Class(
       if (is.null(self$R)) {
         stop("Run getSvdProjectionsNew first")
       }
-      
+
       self$distance_genes <- sqrt(apply((t(self$V_row) - t(self$R) %*% self$R %*% t(self$V_row))^2,2,sum))
       self$distance_samples <- sqrt(apply((self$V_column - t(self$S) %*% self$S %*% self$V_column)^2,2,sum))
 
@@ -302,7 +302,7 @@ SinkhornNNLSLinseed <- R6Class(
       #  V_column <- V_row %*% self$D_v_column
       #  pb$tick()
       #}
-      scaled <- scaleDataset(V)
+      scaled <- scaleDataset(V,iterations)
       self$V_row <- scaled$V_row
       rownames(self$V_row) <- rownames(self$filtered_dataset)
       colnames(self$V_row) <- colnames(self$filtered_dataset)
