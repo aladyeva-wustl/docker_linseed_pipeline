@@ -195,6 +195,12 @@ SinkhornNNLSLinseed <- R6Class(
       p
     },
     
+    filterByMAD = function(min_mad){
+      self$top_genes <- names(self$genes_mad[self$genes_mad >= min_mad])
+      self$filtered_dataset <- self$filtered_dataset[self$top_genes,]
+      self$M <- nrow(self$filtered_dataset)
+    },
+    
     selectTopGenes = function(genes_number=10000) {
       if (self$metric == "mean") {
         dataset_ <- self$genes_mean
